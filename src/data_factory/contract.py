@@ -36,7 +36,7 @@ class ReasonCode(str, Enum):
     OUT_OF_WINDOW = "OUT_OF_WINDOW"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
     CLOSED_BEFORE_CREATED = "CLOSED_BEFORE_CREATED"
-    CLOSED_AFTER_AS_OF = "CLOSED_AFTER_AS_OF"
+    CLOSED_IN_FUTURE = "CLOSED_IN_FUTURE"
     ZIP_MALFORMED = "ZIP_MALFORMED"
     BOROUGH_INVALID = "BOROUGH_INVALID"
 
@@ -106,10 +106,14 @@ def _no(mask: pd.Series) -> pd.Series:
 def validate(
     raw: pd.DataFrame,
     scope: Scope,
-    as_of: pd.Timestamp,
+    fetched_at: pd.Timestamp,
     zip_placeholders: tuple[str, ...],
 ) -> ValidationResult:
     """Split raw records into valid and quarantined ones.
+
+    `fetched_at` is when the data was downloaded: a case cannot have been closed after it.
+    (A case closed after the configured `as_of` cut-off but before `fetched_at` is real and
+    valid; the cleaning stage treats it as still open, so independent downloads agree.)
 
     `raw` holds text exactly as the source sent it. Columns the source omitted
     (the API leaves out empty fields) are treated as missing values, not as errors;
@@ -139,7 +143,7 @@ def validate(
         ReasonCode.OUT_OF_SCOPE: (text["agency"].notna() & ~text["agency"].isin(scope.agencies))
         | (text["complaint_type"].notna() & ~text["complaint_type"].isin(scope.complaint_types)),
         ReasonCode.CLOSED_BEFORE_CREATED: closed < created,
-        ReasonCode.CLOSED_AFTER_AS_OF: closed > as_of,
+        ReasonCode.CLOSED_IN_FUTURE: closed > fetched_at,
         ReasonCode.ZIP_MALFORMED: text["incident_zip"].notna()
         & ~_no(text["incident_zip"].str.fullmatch(r"\d{5}")),
         ReasonCode.BOROUGH_INVALID: text["borough"].notna()
