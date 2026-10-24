@@ -1,0 +1,58 @@
+# Configuration of the data factory.
+# Every tunable value lives here, not in the code. Relative paths are resolved
+# against the folder of this file. Decision numbers (D1, D2, ...) refer to docs/decisions.md.
+
+[source]
+records_url = "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
+metadata_url = "https://data.cityofnewyork.us/api/views/erm2-nwe9.json"
+
+[scope]
+# D1: one agency whose "closed" means the same thing everywhere; six types, about 83% of HPD.
+agencies = ["HPD"]
+complaint_types = [
+    "HEAT/HOT WATER",
+    "UNSANITARY CONDITION",
+    "PLUMBING",
+    "PAINT/PLASTER",
+    "DOOR/WINDOW",
+    "WATER LEAK",
+]
+# D2: 18 months, end exclusive. Recent months are left out: still-open cases would
+# make closing times look artificially short and would keep changing between runs.
+window_start = 2024-01-01T00:00:00
+window_end = 2025-07-01T00:00:00
+
+[fetch]
+page_size = 50000          # records per HTTP request
+max_retries = 5            # extra attempts after a failed request
+backoff_seconds = 2.0      # wait before retry n is backoff_seconds * 2^(n-1)
+timeout_seconds = 120      # per request; large pages of a busy API can be slow
+
+[paths]
+raw = "data/raw"
+curated = "data/curated"
+quarantine = "data/quarantine"
+state = "data/state"       # checkpoints for resuming an interrupted run
+
+[references]
+# D5: population per zip (MODZCTA). D7: zip -> county (borough) for checking the 311 borough.
+population_url = "https://data.cityofnewyork.us/resource/pri4-ifjk.json"
+zcta_county_url = "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_county20_natl.txt"
+
+[zip]
+# D10: values that mean "zip unknown"; they become missing, the record is kept.
+placeholders = ["N/A", "NA", "00000", "12345", "10000"]
+
+[zip.aliases]
+# D6: zips created after the 2010 reference map, joined through the zip they were split from.
+"11249" = "11211"          # USPS split, July 2011
+
+[quarantine]
+# D9: the run fails if more than this share of records is quarantined.
+# Placeholder value: to be set from the quarantine rate of the first full run.
+max_ratio = 0.01
+
+[aggregate]
+# D8: wide summary tables to build, and the fewest cases a cell needs to show a value.
+levels = ["borough", "modzcta"]
+min_cases_per_cell = 20    # placeholder: to be set after the first full run
