@@ -17,7 +17,7 @@ import pandas as pd
 ENCODING = "utf-8"
 LINE_END = "\n"
 DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
-FLOAT_FORMAT = "%.6g"
+FLOAT_FORMAT = "%.10g"   # enough for coordinates (~1 cm) and durations
 TEMP_SUFFIX = ".tmp"
 
 
