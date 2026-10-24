@@ -58,3 +58,12 @@ class SourceSchemaChangedError(DataValidationError):
     """A column the contract needs was removed from the source or changed type."""
 
     exit_code = ExitCode.SOURCE_SCHEMA_CHANGED
+
+
+class HttpStatusError(NetworkError):
+    """The source answered with an error status that retrying will not fix (e.g. 400, 404)."""
+
+    def __init__(self, message: str, status: int, body: str = ""):
+        super().__init__(message)
+        self.status = status
+        self.body = body
