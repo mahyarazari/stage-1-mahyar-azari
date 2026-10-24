@@ -1,0 +1,8 @@
+scope,total,n_types,top3_types_share_pct,pct_open,median_hours,p90_hours,pct_under_1h,pct_zip_missing,pct_zip_bad_pattern,n_not_closed_with_date
+HPD_all,1115080,13,63.0,0.49,80.8,908.9,0.4,0.01,0.00,12
+HPD_top6,927361,6,75.7,0.55,64.4,742.1,0.4,0.01,0.00,7
+DSNY_all,467410,30,46.5,0.54,27.0,251.9,2.2,1.83,0.95,4
+NYPD_noise,1020116,6,91.7,0.00,0.8,6.9,59.3,0.01,0.02,125
+noise_all_agencies,1142099,8,81.9,0.45,0.9,39.6,52.4,0.01,0.02,126
+DOT_all,315424,33,,1.92,,,,,,
+ALL_AGENCIES,5215586,,,,,,,,,
