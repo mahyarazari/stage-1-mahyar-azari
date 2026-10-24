@@ -13,9 +13,16 @@ from typing import Callable
 from data_factory.cleaning import clean_dataset
 from data_factory.config import Config
 from data_factory.contract import SOURCE_COLUMNS
+from data_factory.enrichment import enrich_dataset
 from data_factory.http_client import HttpClient
 from data_factory.ingest import fetch_snapshot, snapshot_id
 from data_factory.raw_store import RawPageStore
+from data_factory.references import (
+    fetch_references,
+    load_borough_reference,
+    load_population,
+    reference_files,
+)
 from data_factory.sources import SocrataSource
 from data_factory.validation import validate_snapshot
 
@@ -43,6 +50,12 @@ def raw_store(config: Config) -> RawPageStore:
     return RawPageStore(config.paths.raw / name)
 
 
+def references(config: Config):
+    """Cached reference files (population, zip-to-county) for the current configuration."""
+    return reference_files(config.paths.raw / "references", config.references.population_url,
+                           config.references.zcta_county_url)
+
+
 def fetch(context: RunContext) -> None:
     if context.since_last_run:
         raise NotImplementedError("--since-last-run is not built yet")
@@ -54,6 +67,8 @@ def fetch(context: RunContext) -> None:
                            config.scope, list(SOURCE_COLUMNS))
     store = raw_store(config)
     result = fetch_snapshot(source, store, SOURCE_COLUMNS, config.fetch.page_size)
+    fetch_references(http, references(config), config.references.population_url,
+                     config.references.zcta_county_url)
     log.info("fetch: %d new pages, %d new records, snapshot %s; HTTP calls %d, attempts %d",
              result.pages_written, result.records_written, store.directory.name,
              http.stats.calls, http.stats.attempts)
@@ -76,11 +91,21 @@ def clean_stage(context: RunContext) -> None:
     clean_dataset(config.paths.work / store.directory.name, config.as_of, config.clean)
 
 
+def enrich_stage(context: RunContext) -> None:
+    config = context.config
+    files = references(config)
+    population = load_population(files.population)
+    boroughs = load_borough_reference(files.zcta_county, config.references.county_boroughs)
+    enrich_dataset(config.paths.work / raw_store(config).directory.name, population, boroughs,
+                   config.zip.aliases, config.clean.chunk_rows, reference_meta=files.meta())
+
+
 STAGE_NAMES = ("fetch", "validate", "clean", "enrich", "publish")
 STAGES: dict[str, Stage] = {name: _not_built_yet(name) for name in STAGE_NAMES}
 STAGES["fetch"] = fetch
 STAGES["validate"] = validate_stage
 STAGES["clean"] = clean_stage
+STAGES["enrich"] = enrich_stage
 
 
 def run(context: RunContext, stage_names: list[str]) -> None:
