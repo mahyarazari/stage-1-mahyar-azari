@@ -21,6 +21,9 @@ complaint_types = [
 # make closing times look artificially short and would keep changing between runs.
 window_start = 2024-01-01T00:00:00
 window_end = 2025-07-01T00:00:00
+# D24: fixed cut-off. A case closed after as_of counts as still open, so two independent
+# downloads made after this date agree even though the live source keeps closing cases.
+as_of = 2026-10-01T00:00:00
 
 [fetch]
 page_size = 50000          # records per HTTP request

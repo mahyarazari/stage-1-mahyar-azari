@@ -17,7 +17,7 @@ SCOPE = Scope(
     window_start=pd.Timestamp("2024-01-01"),
     window_end=pd.Timestamp("2025-07-01"),
 )
-AS_OF = pd.Timestamp("2026-10-24")
+FETCHED_AT = pd.Timestamp("2026-10-24")
 PLACEHOLDERS = ("N/A", "NA", "00000")
 
 
@@ -38,7 +38,7 @@ def record(**overrides):
 
 
 def run(*records):
-    return validate(pd.DataFrame(list(records)), SCOPE, AS_OF, PLACEHOLDERS)
+    return validate(pd.DataFrame(list(records)), SCOPE, FETCHED_AT, PLACEHOLDERS)
 
 
 class HealthyRecordTests(unittest.TestCase):
@@ -70,9 +70,9 @@ class QuarantineTests(unittest.TestCase):
         self.assert_quarantined_for(
             record(closed_date="2024-02-28T08:00:00.000"), ReasonCode.CLOSED_BEFORE_CREATED)
 
-    def test_closed_after_as_of(self):
+    def test_closed_after_download_time(self):
         self.assert_quarantined_for(
-            record(closed_date="2027-01-01T00:00:00.000"), ReasonCode.CLOSED_AFTER_AS_OF)
+            record(closed_date="2027-01-01T00:00:00.000"), ReasonCode.CLOSED_IN_FUTURE)
 
     def test_missing_required_field(self):
         self.assert_quarantined_for(record(unique_key=None), ReasonCode.MISSING_REQUIRED)

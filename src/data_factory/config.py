@@ -71,6 +71,7 @@ class Config:
     path: Path
     source: SourceConfig
     scope: Scope
+    as_of: pd.Timestamp   # cut-off: a case closed after it counts as still open (D24)
     fetch: FetchConfig
     paths: PathsConfig
     references: ReferenceConfig
@@ -133,6 +134,16 @@ def _read_scope(data: dict[str, Any]) -> Scope:
         window_start=pd.Timestamp(start),
         window_end=pd.Timestamp(end),
     )
+
+
+def _read_as_of(data: dict[str, Any], scope: Scope) -> pd.Timestamp:
+    section = _section(data, "scope")
+    as_of = _get(section, "scope", "as_of", datetime)
+    if as_of.tzinfo:
+        raise ConfigError("[scope] as_of must not carry a time zone")
+    if pd.Timestamp(as_of) < scope.window_end:
+        raise ConfigError(f"[scope] as_of ({as_of}) must not be before window_end ({scope.window_end})")
+    return pd.Timestamp(as_of)
 
 
 def _read_fetch(data: dict[str, Any]) -> FetchConfig:
@@ -206,13 +217,15 @@ def load_config(path: str | Path) -> Config:
 
     source = _section(data, "source")
     references = _section(data, "references")
+    scope = _read_scope(data)
     return Config(
         path=path,
         source=SourceConfig(
             records_url=_get(source, "source", "records_url", str),
             metadata_url=_get(source, "source", "metadata_url", str),
         ),
-        scope=_read_scope(data),
+        scope=scope,
+        as_of=_read_as_of(data, scope),
         fetch=_read_fetch(data),
         paths=_read_paths(data, base=path.parent),
         references=ReferenceConfig(

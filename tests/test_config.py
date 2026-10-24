@@ -74,6 +74,10 @@ class InvalidConfigTests(ConfigFileMixin, unittest.TestCase):
         text = self.original.replace("window_end = 2025-07-01T00:00:00", "window_end = 2023-07-01T00:00:00")
         self.assert_config_error(text, "must be before")
 
+    def test_as_of_cannot_be_inside_the_window(self):
+        text = self.original.replace("as_of = 2026-10-01T00:00:00", "as_of = 2025-01-01T00:00:00")
+        self.assert_config_error(text, "as_of")
+
     def test_page_size_must_be_positive(self):
         self.assert_config_error(self.original.replace("page_size = 50000", "page_size = 0"), "page_size")
 
