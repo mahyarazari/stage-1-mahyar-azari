@@ -1,0 +1,9 @@
+pyproject.toml
+src/data_factory/__init__.py
+src/data_factory/contract.py
+src/data_factory.egg-info/PKG-INFO
+src/data_factory.egg-info/SOURCES.txt
+src/data_factory.egg-info/dependency_links.txt
+src/data_factory.egg-info/requires.txt
+src/data_factory.egg-info/top_level.txt
+tests/test_contract.py
