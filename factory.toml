@@ -56,6 +56,14 @@ placeholders = ["N/A", "NA", "00000", "12345", "10000"]
 # breakage: the smallest one worth catching (one week of data) is about 1.3%.
 max_ratio = 0.01
 
+[clean]
+chunk_rows = 50000         # rows held in memory at a time
+# D11: source text that means "unknown"; it becomes a missing value.
+unspecified_values = ["Unspecified", "0 Unspecified"]
+# D11/D13: coordinates outside this box (New York City plus a small margin) become missing.
+latitude_range = [40.47, 40.93]
+longitude_range = [-74.27, -73.68]
+
 [aggregate]
 # D8: wide summary tables to build, and the fewest cases a cell needs to show a value.
 levels = ["borough", "modzcta"]

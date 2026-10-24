@@ -67,6 +67,14 @@ class AggregateConfig:
 
 
 @dataclass(frozen=True)
+class CleanConfig:
+    chunk_rows: int                       # rows processed at a time
+    unspecified_values: tuple[str, ...]   # source text meaning "unknown" (becomes missing)
+    latitude_range: tuple[float, float]   # coordinates outside the city become missing
+    longitude_range: tuple[float, float]
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     source: SourceConfig
@@ -77,6 +85,7 @@ class Config:
     references: ReferenceConfig
     zip: ZipConfig
     max_quarantine_ratio: float
+    clean: CleanConfig
     aggregate: AggregateConfig
 
 
@@ -192,6 +201,24 @@ def _read_quarantine(data: dict[str, Any]) -> float:
     return ratio
 
 
+def _range(section: dict[str, Any], key: str) -> tuple[float, float]:
+    values = _get(section, "clean", key, list)
+    if (len(values) != 2 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values)
+            or values[0] >= values[1]):
+        raise ConfigError(f"[clean] {key} must be [low, high] with low < high, got {values!r}")
+    return float(values[0]), float(values[1])
+
+
+def _read_clean(data: dict[str, Any]) -> CleanConfig:
+    section = _section(data, "clean")
+    return CleanConfig(
+        chunk_rows=int(_positive(_get(section, "clean", "chunk_rows", int), "[clean] chunk_rows")),
+        unspecified_values=_text_list(section, "clean", "unspecified_values"),
+        latitude_range=_range(section, "latitude_range"),
+        longitude_range=_range(section, "longitude_range"),
+    )
+
+
 def _read_aggregate(data: dict[str, Any]) -> AggregateConfig:
     section = _section(data, "aggregate")
     levels = _text_list(section, "aggregate", "levels")
@@ -234,5 +261,6 @@ def load_config(path: str | Path) -> Config:
         ),
         zip=_read_zip(data),
         max_quarantine_ratio=_read_quarantine(data),
+        clean=_read_clean(data),
         aggregate=_read_aggregate(data),
     )
