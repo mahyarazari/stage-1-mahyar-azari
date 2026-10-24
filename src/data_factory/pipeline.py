@@ -5,8 +5,11 @@ the order they must run; the command line can run all of them or only some.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass, field
 from typing import Callable
 
 from data_factory.cleaning import clean_dataset
@@ -15,7 +18,9 @@ from data_factory.contract import SOURCE_COLUMNS
 from data_factory.enrichment import enrich_dataset
 from data_factory.http_client import HttpClient
 from data_factory.ingest import fetch_snapshot, snapshot_id
-from data_factory.publish import publish
+from data_factory.manifest import RunRecord, build_manifest, save_manifest
+from data_factory.publish import CASES_FILE, QUALITY_FILE, publish, summary_file
+from data_factory.publish import METRICS
 from data_factory.raw_store import RawPageStore
 from data_factory.references import (
     fetch_references,
@@ -24,7 +29,7 @@ from data_factory.references import (
     reference_files,
 )
 from data_factory.sources import SocrataSource
-from data_factory.validation import validate_snapshot
+from data_factory.validation import QUARANTINE_FILE, validate_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +38,7 @@ log = logging.getLogger(__name__)
 class RunContext:
     config: Config
     since_last_run: bool = False   # fetch only records newer than the previous run
+    record: RunRecord = field(default_factory=RunRecord)   # filled in during the run
 
 
 Stage = Callable[[RunContext], None]
@@ -60,9 +66,12 @@ def fetch(context: RunContext) -> None:
     source = SocrataSource(http, config.source.records_url, config.source.metadata_url,
                            config.scope, list(SOURCE_COLUMNS))
     store = raw_store(config)
-    result = fetch_snapshot(source, store, SOURCE_COLUMNS, config.fetch.page_size)
-    fetch_references(http, references(config), config.references.population_url,
-                     config.references.zcta_county_url)
+    try:
+        result = fetch_snapshot(source, store, SOURCE_COLUMNS, config.fetch.page_size)
+        fetch_references(http, references(config), config.references.population_url,
+                         config.references.zcta_county_url)
+    finally:
+        context.record.http.update(asdict(http.stats))   # counted even if the fetch fails
     log.info("fetch: %d new pages, %d new records, snapshot %s; HTTP calls %d, attempts %d",
              result.pages_written, result.records_written, store.directory.name,
              http.stats.calls, http.stats.attempts)
@@ -111,8 +120,51 @@ STAGES: dict[str, Stage] = {
 
 
 def run(context: RunContext, stage_names: list[str]) -> None:
-    """Run the given stages, always in the factory's order."""
-    for name in stage_names:
-        log.info("stage %s: start", name)
-        STAGES[name](context)
-        log.info("stage %s: done", name)
+    """Run the given stages, always in the factory's order, then write the run manifest."""
+    record = context.record
+    try:
+        for name in stage_names:
+            log.info("stage %s: start", name)
+            started = time.perf_counter()
+            record.stages.append(name)
+            STAGES[name](context)
+            record.stage_seconds[name] = round(time.perf_counter() - started, 1)
+            log.info("stage %s: done", name)
+    except Exception as error:
+        record_run(context, status="failed", error=f"{type(error).__name__}: {error}")
+        raise
+    record_run(context, status="succeeded")
+
+
+def output_files(config: Config) -> dict[str, Path]:
+    """Every published file whose hash goes into the manifest, by name relative to data/."""
+    curated = config.paths.curated
+    names = [CASES_FILE, QUALITY_FILE] + [summary_file(level, metric)
+                                          for level in config.aggregate.levels for metric in METRICS]
+    files = {f"curated/{name}": curated / name for name in names}
+    snapshot = raw_store(config).directory.name
+    files[f"quarantine/{QUARANTINE_FILE}"] = config.paths.quarantine / snapshot / QUARANTINE_FILE
+    return files
+
+
+def record_run(context: RunContext, status: str, error: str | None = None) -> None:
+    config = context.config
+    store = raw_store(config)
+    info = store.completion_info() if store.is_complete() else {}
+    files = references(config)
+    manifest = build_manifest(
+        status=status, error=error, record=context.record, config_path=config.path,
+        scope={"agencies": list(config.scope.agencies),
+               "complaint_types": list(config.scope.complaint_types),
+               "window_start": config.scope.window_start.isoformat(),
+               "window_end_exclusive": config.scope.window_end.isoformat(),
+               "as_of": config.as_of.isoformat(),
+               "since_last_run": context.since_last_run},
+        source={"records_url": config.source.records_url, "snapshot": store.directory.name,
+                "fetched_at_utc": info.get("fetched_at_utc"), "pages": info.get("pages"),
+                "raw_records": info.get("records"), "page_size": config.fetch.page_size},
+        work_dir=config.paths.work / store.directory.name,
+        references=files.meta() if files.exist() else {},
+        outputs=output_files(config),
+    )
+    save_manifest(manifest, config.paths.curated, config.paths.work / "manifests")
