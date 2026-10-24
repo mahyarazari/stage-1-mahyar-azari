@@ -16,6 +16,7 @@ class ExitCode(IntEnum):
     DATA_VALIDATION = 30
     QUARANTINE_THRESHOLD = 31
     SOURCE_SCHEMA_CHANGED = 32
+    REFERENCE_DATA = 33
     MISSING_INPUT = 40
 
 
@@ -74,3 +75,9 @@ class MissingInputError(FactoryError):
     """A stage was asked to run before the stage that produces its input (e.g. validate before fetch)."""
 
     exit_code = ExitCode.MISSING_INPUT
+
+
+class ReferenceDataError(DataValidationError):
+    """A reference table (population, zip-to-county) is missing columns or breaks its own rules."""
+
+    exit_code = ExitCode.REFERENCE_DATA

@@ -42,6 +42,14 @@ work = "data/work"         # intermediate results passed from one stage to the n
 population_url = "https://data.cityofnewyork.us/resource/pri4-ifjk.json"
 zcta_county_url = "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_county20_natl.txt"
 
+[references.county_boroughs]
+# Each borough is a county (state 36 = New York); names as written in the 311 data.
+"36005" = "BRONX"
+"36047" = "BROOKLYN"
+"36061" = "MANHATTAN"
+"36081" = "QUEENS"
+"36085" = "STATEN ISLAND"
+
 [zip]
 # D10: values that mean "zip unknown"; they become missing, the record is kept.
 placeholders = ["N/A", "NA", "00000", "12345", "10000"]

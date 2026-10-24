@@ -19,7 +19,7 @@ from typing import Any
 
 import pandas as pd
 
-from data_factory.contract import Scope
+from data_factory.contract import BOROUGHS, Scope
 from data_factory.exceptions import ConfigError
 
 ZIP_PATTERN = re.compile(r"\d{5}")
@@ -52,6 +52,7 @@ class PathsConfig:
 class ReferenceConfig:
     population_url: str
     zcta_county_url: str
+    county_boroughs: dict[str, str]   # county FIPS code -> borough name as written in 311
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,22 @@ def _read_paths(data: dict[str, Any], base: Path) -> PathsConfig:
                        quarantine=resolve("quarantine"), work=resolve("work"))
 
 
+def _read_references(data: dict[str, Any]) -> ReferenceConfig:
+    section = _section(data, "references")
+    counties = _get(section, "references", "county_boroughs", dict)
+    for code, borough in counties.items():
+        if not re.fullmatch(r"\d{5}", code) or borough not in BOROUGHS:
+            raise ConfigError(f"[references.county_boroughs] '{code}' = {borough!r}: "
+                              f"need a 5-digit county code and one of {list(BOROUGHS)}")
+    if sorted(counties.values()) != sorted(BOROUGHS):
+        raise ConfigError("[references.county_boroughs] must map exactly one county to each borough")
+    return ReferenceConfig(
+        population_url=_get(section, "references", "population_url", str),
+        zcta_county_url=_get(section, "references", "zcta_county_url", str),
+        county_boroughs=dict(counties),
+    )
+
+
 def _read_zip(data: dict[str, Any]) -> ZipConfig:
     section = _section(data, "zip")
     placeholders = _get(section, "zip", "placeholders", list)
@@ -243,7 +260,6 @@ def load_config(path: str | Path) -> Config:
         raise ConfigError(f"configuration file is not valid TOML ({path}): {error}") from None
 
     source = _section(data, "source")
-    references = _section(data, "references")
     scope = _read_scope(data)
     return Config(
         path=path,
@@ -255,10 +271,7 @@ def load_config(path: str | Path) -> Config:
         as_of=_read_as_of(data, scope),
         fetch=_read_fetch(data),
         paths=_read_paths(data, base=path.parent),
-        references=ReferenceConfig(
-            population_url=_get(references, "references", "population_url", str),
-            zcta_county_url=_get(references, "references", "zcta_county_url", str),
-        ),
+        references=_read_references(data),
         zip=_read_zip(data),
         max_quarantine_ratio=_read_quarantine(data),
         clean=_read_clean(data),
