@@ -42,7 +42,8 @@ class CliTests(unittest.TestCase):
 
     def run_cli(self, *args, **behaviour):
         stages, calls = fake_stages(**behaviour)
-        with mock.patch.dict(pipeline.STAGES, stages):
+        with mock.patch.dict(pipeline.STAGES, stages), \
+             mock.patch.object(pipeline, "record_run") as self.record_run:
             code = main(["--config", PROJECT_CONFIG, *args])
         return code, calls
 
@@ -81,6 +82,13 @@ class CliTests(unittest.TestCase):
     def test_failure_stops_later_stages(self):
         _, calls = self.run_cli("run", validate=QuarantineThresholdError("too many"))
         self.assertEqual(calls, ["fetch", "validate"])
+
+    def test_every_run_is_recorded_successful_or_not(self):
+        self.run_cli("run")
+        self.assertEqual(self.record_run.call_args.kwargs["status"], "succeeded")
+        self.run_cli("run", clean=NetworkError("down"))
+        self.assertEqual(self.record_run.call_args.kwargs["status"], "failed")
+        self.assertIn("NetworkError", self.record_run.call_args.kwargs["error"])
 
     def test_missing_config_file_gives_config_exit_code(self):
         self.assertEqual(main(["--config", "no/such/file.toml", "check-config"]), ExitCode.CONFIG)
