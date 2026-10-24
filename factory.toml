@@ -35,7 +35,7 @@ timeout_seconds = 120      # per request; large pages of a busy API can be slow
 raw = "data/raw"
 curated = "data/curated"
 quarantine = "data/quarantine"
-state = "data/state"       # checkpoints for resuming an interrupted run
+work = "data/work"         # intermediate results passed from one stage to the next
 
 [references]
 # D5: population per zip (MODZCTA). D7: zip -> county (borough) for checking the 311 borough.
@@ -52,7 +52,8 @@ placeholders = ["N/A", "NA", "00000", "12345", "10000"]
 
 [quarantine]
 # D9: the run fails if more than this share of records is quarantined.
-# Placeholder value: to be set from the quarantine rate of the first full run.
+# First full run: 0 of 927,361 records quarantined. The limit targets structural
+# breakage: the smallest one worth catching (one week of data) is about 1.3%.
 max_ratio = 0.01
 
 [aggregate]

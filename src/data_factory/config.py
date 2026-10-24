@@ -45,7 +45,7 @@ class PathsConfig:
     raw: Path
     curated: Path
     quarantine: Path
-    state: Path
+    work: Path        # intermediate results passed from one stage to the next
 
 
 @dataclass(frozen=True)
@@ -169,7 +169,7 @@ def _read_paths(data: dict[str, Any], base: Path) -> PathsConfig:
         return path if path.is_absolute() else (base / path).resolve()
 
     return PathsConfig(raw=resolve("raw"), curated=resolve("curated"),
-                       quarantine=resolve("quarantine"), state=resolve("state"))
+                       quarantine=resolve("quarantine"), work=resolve("work"))
 
 
 def _read_zip(data: dict[str, Any]) -> ZipConfig:

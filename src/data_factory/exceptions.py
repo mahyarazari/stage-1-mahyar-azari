@@ -16,6 +16,7 @@ class ExitCode(IntEnum):
     DATA_VALIDATION = 30
     QUARANTINE_THRESHOLD = 31
     SOURCE_SCHEMA_CHANGED = 32
+    MISSING_INPUT = 40
 
 
 class FactoryError(Exception):
@@ -67,3 +68,9 @@ class HttpStatusError(NetworkError):
         super().__init__(message)
         self.status = status
         self.body = body
+
+
+class MissingInputError(FactoryError):
+    """A stage was asked to run before the stage that produces its input (e.g. validate before fetch)."""
+
+    exit_code = ExitCode.MISSING_INPUT
