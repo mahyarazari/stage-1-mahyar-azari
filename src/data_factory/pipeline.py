@@ -2,7 +2,6 @@
 
 Each stage is a function that receives the run context. Stages are registered here in
 the order they must run; the command line can run all of them or only some.
-Stages are filled in one by one as they are built; until then they say so clearly.
 """
 from __future__ import annotations
 
@@ -16,6 +15,7 @@ from data_factory.contract import SOURCE_COLUMNS
 from data_factory.enrichment import enrich_dataset
 from data_factory.http_client import HttpClient
 from data_factory.ingest import fetch_snapshot, snapshot_id
+from data_factory.publish import publish
 from data_factory.raw_store import RawPageStore
 from data_factory.references import (
     fetch_references,
@@ -36,12 +36,6 @@ class RunContext:
 
 
 Stage = Callable[[RunContext], None]
-
-
-def _not_built_yet(name: str) -> Stage:
-    def stage(context: RunContext) -> None:
-        raise NotImplementedError(f"stage '{name}' is not built yet")
-    return stage
 
 
 def raw_store(config: Config) -> RawPageStore:
@@ -100,12 +94,20 @@ def enrich_stage(context: RunContext) -> None:
                    config.zip.aliases, config.clean.chunk_rows, reference_meta=files.meta())
 
 
+def publish_stage(context: RunContext) -> None:
+    config = context.config
+    publish(config.paths.work / raw_store(config).directory.name, config.paths.curated,
+            config.scope, config.aggregate)
+
+
 STAGE_NAMES = ("fetch", "validate", "clean", "enrich", "publish")
-STAGES: dict[str, Stage] = {name: _not_built_yet(name) for name in STAGE_NAMES}
-STAGES["fetch"] = fetch
-STAGES["validate"] = validate_stage
-STAGES["clean"] = clean_stage
-STAGES["enrich"] = enrich_stage
+STAGES: dict[str, Stage] = {
+    "fetch": fetch,
+    "validate": validate_stage,
+    "clean": clean_stage,
+    "enrich": enrich_stage,
+    "publish": publish_stage,
+}
 
 
 def run(context: RunContext, stage_names: list[str]) -> None:
