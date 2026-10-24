@@ -556,6 +556,12 @@
 
 **تست سرتاسری بدون اینترنت** (`tests/test_manifest.py`): یک پروژهٔ کوچک در پوشهٔ موقت ساخته می‌شود (snapshot کامل و منابع مرجع cache‌شده)، **کل کارخانه دو بار اجرا می‌شود**، و تست بررسی می‌کند که manifest دوم `identical_outputs = True` دارد. شرط قبولی «اجرای دوم، hash یکسان» حالا یک تست خودکار است.
 
+**اجرای واقعی** (2026-10-24، دو اجرای پشت سر هم روی `snapshot-2c0ffe825cb1`، بعد از commit): اجرای دوم در log نوشت:
+`determinism: same inputs as the previous run, all 9 output hashes identical`
+۹ خروجی = `cases.csv` + `quality_report.csv` + ۶ جدول خلاصه + `quarantine.csv`. زمان اجرای دوم حدود **۱ دقیقه و ۳۲ ثانیه** بود.
+
+**یک خطای واقعی بازتولیدپذیری:** اولین اجرا با `ImportError: cannot import name '__version__'` شکست خورد. فایل `__init__.py` در repo نسخهٔ package را نداشت، و تا وقتی manifest آن را نمی‌خواند، هیچ تستی متوجه نمی‌شد. ← `__version__` اضافه شد، و تست سرتاسری حالا نسخه را در manifest بررسی می‌کند. (برای بخش «چیزهایی که شکست خوردند».)
+
 **نسخهٔ کد از Git:** با `git rev-parse HEAD`. اگر Git در دسترس نباشد، `unknown` ثبت می‌شود و اجرا متوقف نمی‌شود. `git_dirty = true` یعنی فایل‌های پیگیری‌شده تغییر commit‌نشده دارند. پس manifest نشان می‌دهد خروجی دقیقاً از کدام نسخهٔ کد آمده.
 
 ---
