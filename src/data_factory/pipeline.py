@@ -16,6 +16,7 @@ from data_factory.http_client import HttpClient
 from data_factory.ingest import fetch_snapshot, snapshot_id
 from data_factory.raw_store import RawPageStore
 from data_factory.sources import SocrataSource
+from data_factory.validation import validate_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -57,9 +58,21 @@ def fetch(context: RunContext) -> None:
              http.stats.calls, http.stats.attempts)
 
 
+def validate_stage(context: RunContext) -> None:
+    config = context.config
+    store = raw_store(config)
+    validate_snapshot(store,
+                      work_dir=config.paths.work / store.directory.name,
+                      quarantine_dir=config.paths.quarantine / store.directory.name,
+                      scope=config.scope,
+                      zip_placeholders=config.zip.placeholders,
+                      max_ratio=config.max_quarantine_ratio)
+
+
 STAGE_NAMES = ("fetch", "validate", "clean", "enrich", "publish")
 STAGES: dict[str, Stage] = {name: _not_built_yet(name) for name in STAGE_NAMES}
 STAGES["fetch"] = fetch
+STAGES["validate"] = validate_stage
 
 
 def run(context: RunContext, stage_names: list[str]) -> None:
