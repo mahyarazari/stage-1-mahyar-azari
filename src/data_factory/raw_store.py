@@ -17,14 +17,20 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
+
+import pandas as pd
 
 from data_factory.exceptions import DataValidationError
 
 PAGE_PATTERN = re.compile(r"page-(\d{5})\.jsonl")
 TEMP_SUFFIX = ".tmp"
 COMPLETE_MARKER = "COMPLETE.json"
+INCREMENTS_SUFFIX = ".increments"
+SEGMENT_TIME = "%Y%m%dT%H%M%S"
+SEGMENT_PATTERN = re.compile(r"(\d{8}T\d{6})_(\d{8}T\d{6})")
 ENCODING = "utf-8"
 NEWLINE = "\n"   # explicit: the same bytes on Windows and Linux (D20)
 
@@ -117,3 +123,51 @@ class RawPageStore:
         for path in self.page_files():
             with path.open(encoding=ENCODING) as handle:
                 yield [json.loads(line) for line in handle if line.strip()]
+
+
+# ---------------------------------------------------------------- moving window (D31)
+@dataclass(frozen=True)
+class Segment:
+    store: RawPageStore
+    window_start: pd.Timestamp
+    window_end: pd.Timestamp      # exclusive
+
+
+class SnapshotChain:
+    """The base snapshot plus every increment fetched later with --since-last-run.
+
+    Increments live next to the base snapshot, in <base>.increments/<start>_<end>/, and are
+    immutable like the base. Their windows follow each other without gap or overlap, so the
+    chain covers [base start, end of the last complete increment).
+    """
+
+    def __init__(self, base: RawPageStore, base_start: pd.Timestamp, base_end: pd.Timestamp):
+        self.base = Segment(base, base_start, base_end)
+        self.increments_dir = base.directory.with_name(base.directory.name + INCREMENTS_SUFFIX)
+
+    def _increments(self) -> list[Segment]:
+        if not self.increments_dir.exists():
+            return []
+        found = []
+        for folder in self.increments_dir.iterdir():
+            match = SEGMENT_PATTERN.fullmatch(folder.name)
+            if match:
+                start, end = (pd.to_datetime(value, format=SEGMENT_TIME) for value in match.groups())
+                found.append(Segment(RawPageStore(folder), start, end))
+        return sorted(found, key=lambda segment: segment.window_start)
+
+    def segments(self) -> list[Segment]:
+        """Complete segments in time order: what the later stages read."""
+        return [self.base] + [s for s in self._increments() if s.store.is_complete()]
+
+    def unfinished_increment(self) -> Segment | None:
+        """An increment whose download was interrupted: it is resumed, not restarted."""
+        pending = [s for s in self._increments() if not s.store.is_complete()]
+        return pending[0] if pending else None
+
+    def window_end(self) -> pd.Timestamp:
+        return self.segments()[-1].window_end
+
+    def increment(self, start: pd.Timestamp, end: pd.Timestamp) -> Segment:
+        name = f"{start.strftime(SEGMENT_TIME)}_{end.strftime(SEGMENT_TIME)}"
+        return Segment(RawPageStore(self.increments_dir / name), start, end)

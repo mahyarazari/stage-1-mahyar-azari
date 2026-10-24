@@ -62,7 +62,8 @@ def _check_page_order(page: list[dict], key_field: str, after_key: str | None) -
 
 
 def fetch_snapshot(source: Source, store: RawPageStore, expected_columns: dict[str, str],
-                   page_size: int, now: datetime | None = None) -> FetchResult:
+                   page_size: int, now: datetime | None = None,
+                   extra_info: dict | None = None) -> FetchResult:
     source.check_schema(expected_columns)
 
     if store.is_complete():
@@ -102,5 +103,6 @@ def fetch_snapshot(source: Source, store: RawPageStore, expected_columns: dict[s
         "fetched_at_utc": finished_at.isoformat(),
         "pages": len(store.page_files()),
         "records": store.count_records(),
+        **(extra_info or {}),
     })
     return FetchResult(pages_written, records_written, already_complete=False)

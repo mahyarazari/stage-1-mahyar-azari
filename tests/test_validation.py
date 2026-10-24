@@ -50,7 +50,7 @@ class ValidateStageTests(unittest.TestCase):
         self.store.mark_complete({"fetched_at_utc": "2026-10-24T12:00:00", "pages": len(pages)})
 
     def run_stage(self, max_ratio=0.5):
-        return validate_snapshot(self.store, self.work, self.quarantine, SCOPE, PLACEHOLDERS, max_ratio)
+        return validate_snapshot([self.store], self.work, self.quarantine, SCOPE, PLACEHOLDERS, max_ratio)
 
     def test_valid_and_quarantined_records_go_to_separate_files(self):
         self.snapshot([record(1), record(2, closed_date="2024-01-01T00:00:00.000")],

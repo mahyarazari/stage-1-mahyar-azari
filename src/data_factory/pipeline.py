@@ -5,23 +5,25 @@ the order they must run; the command line can run all of them or only some.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import logging
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Callable
+
+import pandas as pd
 
 from data_factory.cleaning import clean_dataset
 from data_factory.config import Config
-from data_factory.contract import SOURCE_COLUMNS
+from data_factory.contract import SOURCE_COLUMNS, Scope
 from data_factory.enrichment import enrich_dataset
 from data_factory.http_client import HttpClient
 from data_factory.ingest import fetch_snapshot, snapshot_id
 from data_factory.manifest import RunRecord, build_manifest, save_manifest
-from data_factory.publish import CASES_FILE, QUALITY_FILE, publish, summary_file
-from data_factory.publish import METRICS
-from data_factory.raw_store import RawPageStore
+from data_factory.publish import CASES_FILE, METRICS, QUALITY_FILE, publish, summary_file
+from data_factory.exceptions import MissingInputError
+from data_factory.raw_store import RawPageStore, Segment, SnapshotChain
 from data_factory.references import (
     fetch_references,
     load_borough_reference,
@@ -56,42 +58,92 @@ def references(config: Config):
                            config.references.zcta_county_url)
 
 
+def chain(config: Config) -> SnapshotChain:
+    return SnapshotChain(raw_store(config), config.scope.window_start, config.scope.window_end)
+
+
+def effective_scope(config: Config) -> Scope:
+    """The configured scope, with the window extended to the end of the last increment (D31)."""
+    return replace(config.scope, window_end=chain(config).window_end())
+
+
+def effective_as_of(config: Config) -> pd.Timestamp:
+    """The as_of cut-off never lies inside the data: it moves with the window end (D31)."""
+    return max(config.as_of, chain(config).window_end())
+
+
+def today_utc() -> datetime:
+    """Today's date at midnight, UTC. A function so tests can fix 'today'."""
+    return datetime.now(timezone.utc).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+
+
+def increment_cutoff() -> pd.Timestamp:
+    """End (exclusive) of a new increment: midnight starting *yesterday* by the UTC date.
+
+    New York is 4-5 hours behind UTC, so this is never later than the start of the current
+    New York day: an increment only ever holds complete New York days, and a day is never
+    split between two increments.
+    """
+    return pd.Timestamp(today_utc() - timedelta(days=1))
+
+
+def _segment_to_fetch(config: Config, since_last_run: bool) -> Segment | None:
+    base = chain(config)
+    if not since_last_run:
+        return base.base
+    if not base.base.store.is_complete():
+        raise MissingInputError("--since-last-run needs a complete base snapshot: run the fetch stage first")
+    pending = base.unfinished_increment()
+    if pending is not None:
+        log.info("resuming the unfinished increment %s", pending.store.directory.name)
+        return pending
+    start, end = base.window_end(), increment_cutoff()
+    if end <= start:
+        log.info("since last run: data is already complete up to %s; nothing new", start)
+        return None
+    return base.increment(start, end)
+
+
 def fetch(context: RunContext) -> None:
-    if context.since_last_run:
-        raise NotImplementedError("--since-last-run is not built yet")
     config = context.config
     http = HttpClient(timeout_seconds=config.fetch.timeout_seconds,
                       max_retries=config.fetch.max_retries,
                       backoff_seconds=config.fetch.backoff_seconds)
-    source = SocrataSource(http, config.source.records_url, config.source.metadata_url,
-                           config.scope, list(SOURCE_COLUMNS))
-    store = raw_store(config)
+    segment = _segment_to_fetch(config, context.since_last_run)
     try:
-        result = fetch_snapshot(source, store, SOURCE_COLUMNS, config.fetch.page_size)
+        if segment is not None:
+            scope = replace(config.scope, window_start=segment.window_start, window_end=segment.window_end)
+            source = SocrataSource(http, config.source.records_url, config.source.metadata_url,
+                                   scope, list(SOURCE_COLUMNS))
+            result = fetch_snapshot(source, segment.store, SOURCE_COLUMNS, config.fetch.page_size,
+                                    extra_info={"window_start": segment.window_start.isoformat(),
+                                                "window_end": segment.window_end.isoformat()})
+            log.info("fetch: %d new pages, %d new records, segment %s", result.pages_written,
+                     result.records_written, segment.store.directory.name)
         fetch_references(http, references(config), config.references.population_url,
                          config.references.zcta_county_url)
     finally:
         context.record.http.update(asdict(http.stats))   # counted even if the fetch fails
-    log.info("fetch: %d new pages, %d new records, snapshot %s; HTTP calls %d, attempts %d",
-             result.pages_written, result.records_written, store.directory.name,
-             http.stats.calls, http.stats.attempts)
+    log.info("fetch: HTTP calls %d, attempts %d", http.stats.calls, http.stats.attempts)
+
+
+def work_dir(config: Config) -> Path:
+    return config.paths.work / raw_store(config).directory.name
 
 
 def validate_stage(context: RunContext) -> None:
     config = context.config
-    store = raw_store(config)
-    validate_snapshot(store,
-                      work_dir=config.paths.work / store.directory.name,
-                      quarantine_dir=config.paths.quarantine / store.directory.name,
-                      scope=config.scope,
+    validate_snapshot([segment.store for segment in chain(config).segments()],
+                      work_dir=work_dir(config),
+                      quarantine_dir=config.paths.quarantine / raw_store(config).directory.name,
+                      scope=effective_scope(config),
                       zip_placeholders=config.zip.placeholders,
                       max_ratio=config.max_quarantine_ratio)
 
 
 def clean_stage(context: RunContext) -> None:
     config = context.config
-    store = raw_store(config)
-    clean_dataset(config.paths.work / store.directory.name, config.as_of, config.clean)
+    clean_dataset(work_dir(config), effective_as_of(config), config.clean)
 
 
 def enrich_stage(context: RunContext) -> None:
@@ -99,14 +151,13 @@ def enrich_stage(context: RunContext) -> None:
     files = references(config)
     population = load_population(files.population)
     boroughs = load_borough_reference(files.zcta_county, config.references.county_boroughs)
-    enrich_dataset(config.paths.work / raw_store(config).directory.name, population, boroughs,
+    enrich_dataset(work_dir(config), population, boroughs,
                    config.zip.aliases, config.clean.chunk_rows, reference_meta=files.meta())
 
 
 def publish_stage(context: RunContext) -> None:
     config = context.config
-    publish(config.paths.work / raw_store(config).directory.name, config.paths.curated,
-            config.scope, config.aggregate)
+    publish(work_dir(config), config.paths.curated, effective_scope(config), config.aggregate)
 
 
 STAGE_NAMES = ("fetch", "validate", "clean", "enrich", "publish")
@@ -149,21 +200,31 @@ def output_files(config: Config) -> dict[str, Path]:
 
 def record_run(context: RunContext, status: str, error: str | None = None) -> None:
     config = context.config
-    store = raw_store(config)
-    info = store.completion_info() if store.is_complete() else {}
+    segments = []
+    for segment in chain(config).segments():
+        info = segment.store.completion_info() if segment.store.is_complete() else {}
+        segments.append({"name": segment.store.directory.name,
+                         "window_start": segment.window_start.isoformat(),
+                         "window_end_exclusive": segment.window_end.isoformat(),
+                         "fetched_at_utc": info.get("fetched_at_utc"),
+                         "pages": info.get("pages"), "raw_records": info.get("records")})
+    base = segments[0]
+    scope = effective_scope(config)
     files = references(config)
     manifest = build_manifest(
         status=status, error=error, record=context.record, config_path=config.path,
-        scope={"agencies": list(config.scope.agencies),
-               "complaint_types": list(config.scope.complaint_types),
-               "window_start": config.scope.window_start.isoformat(),
-               "window_end_exclusive": config.scope.window_end.isoformat(),
-               "as_of": config.as_of.isoformat(),
+        scope={"agencies": list(scope.agencies),
+               "complaint_types": list(scope.complaint_types),
+               "window_start": scope.window_start.isoformat(),
+               "window_end_exclusive": scope.window_end.isoformat(),
+               "as_of": effective_as_of(config).isoformat(),
                "since_last_run": context.since_last_run},
-        source={"records_url": config.source.records_url, "snapshot": store.directory.name,
-                "fetched_at_utc": info.get("fetched_at_utc"), "pages": info.get("pages"),
-                "raw_records": info.get("records"), "page_size": config.fetch.page_size},
-        work_dir=config.paths.work / store.directory.name,
+        source={"records_url": config.source.records_url,
+                "snapshot": "+".join(s["name"] for s in segments),
+                "segments": segments,
+                "fetched_at_utc": base["fetched_at_utc"], "pages": base["pages"],
+                "raw_records": base["raw_records"], "page_size": config.fetch.page_size},
+        work_dir=work_dir(config),
         references=files.meta() if files.exist() else {},
         outputs=output_files(config),
     )

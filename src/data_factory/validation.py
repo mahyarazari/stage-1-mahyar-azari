@@ -44,11 +44,12 @@ class ValidationStats:
     reasons: dict[str, int]
 
 
-def validate_snapshot(store: RawPageStore, work_dir, quarantine_dir, scope: Scope,
+def validate_snapshot(stores: list[RawPageStore], work_dir, quarantine_dir, scope: Scope,
                       zip_placeholders: tuple[str, ...], max_ratio: float) -> ValidationStats:
-    if not store.is_complete():
-        raise MissingInputError(f"raw snapshot {store.directory} is not complete: run the fetch stage first")
-    fetched_at = pd.Timestamp(store.completion_info()["fetched_at_utc"])
+    """Validate every segment of the raw data (base snapshot, then increments) in order."""
+    for store in stores:
+        if not store.is_complete():
+            raise MissingInputError(f"raw snapshot {store.directory} is not complete: run the fetch stage first")
 
     columns = list(SOURCE_COLUMNS)
     reasons = reason_counts(pd.DataFrame(columns=[REASON_COLUMN]))   # every reason at 0
@@ -56,7 +57,8 @@ def validate_snapshot(store: RawPageStore, work_dir, quarantine_dir, scope: Scop
 
     with AtomicCsvWriter(work_dir / VALIDATED_FILE, columns) as valid_out, \
          AtomicCsvWriter(quarantine_dir / QUARANTINE_FILE, columns + [REASON_COLUMN]) as bad_out:
-        for page in store.read_pages():            # one page in memory at a time
+        for store, page in ((s, page) for s in stores for page in s.read_pages()):  # one page at a time
+            fetched_at = pd.Timestamp(store.completion_info()["fetched_at_utc"])
             result = validate(pd.DataFrame(page), scope, fetched_at, zip_placeholders)
             raw_records += len(page)
             valid_out.append(result.valid)
