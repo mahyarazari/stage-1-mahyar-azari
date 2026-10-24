@@ -8,6 +8,7 @@ Behaviour per outcome (decision D21 in docs/decisions.md):
   - any other error status (400, 403, 404, ...)          -> HttpStatusError, no retry
   - status 2xx but not JSON content (e.g. an HTML page)  -> InvalidResponseError, no retry
   - JSON content that cannot be parsed (truncated body)  -> retry, then InvalidResponseError
+  - text download (get_text) answered with an HTML page   -> InvalidResponseError, no retry
 """
 from __future__ import annotations
 
@@ -68,14 +69,22 @@ class HttpClient:
     def post_json(self, url: str, body: Any, params: dict[str, Any] | None = None) -> Any:
         return self.request_json("POST", url, params=params, body=body)
 
+    def get_text(self, url: str, params: dict[str, Any] | None = None) -> str:
+        """A plain-text file (e.g. a pipe-delimited table). An HTML page is refused."""
+        return self._request("GET", url, params, None, _parse_text)
+
     def request_json(self, method: str, url: str, params: dict[str, Any] | None = None,
                      body: Any = None) -> Any:
+        return self._request(method, url, params, body, _parse_json)
+
+    def _request(self, method: str, url: str, params: dict[str, Any] | None, body: Any,
+                 parse: Callable[[str, str, requests.Response], Any]) -> Any:
         self.stats.calls += 1
         last_problem = _Retryable("no attempt made")
         for attempt in range(1, self.max_retries + 2):
             self.stats.attempts += 1
             try:
-                return self._attempt(method, url, params, body)
+                return parse(method, url, self._send(method, url, params, body))
             except _Retryable as problem:
                 last_problem = problem
                 if attempt > self.max_retries:
@@ -91,7 +100,9 @@ class HttpClient:
         raise NetworkError(message)
 
     # ------------------------------------------------------------ one attempt
-    def _attempt(self, method: str, url: str, params: dict[str, Any] | None, body: Any) -> Any:
+    def _send(self, method: str, url: str, params: dict[str, Any] | None,
+              body: Any) -> requests.Response:
+        """Send once; return the response if its status is a success."""
         try:
             response = self.session.request(method, url, params=params, json=body,
                                             headers=self.headers, timeout=self.timeout_seconds)
@@ -106,22 +117,35 @@ class HttpClient:
         if not 200 <= status < 300:
             body_text = response.text[:BODY_EXCERPT_CHARS]
             raise HttpStatusError(f"{method} {url}: status {status}: {body_text}", status, body_text)
-
-        content_type = response.headers.get("Content-Type", "")
-        if "json" not in content_type.lower():
-            redirected = f", redirected to {response.url}" if response.history else ""
-            raise InvalidResponseError(
-                f"{method} {url}: expected JSON but got '{content_type or 'no Content-Type'}'"
-                f"{redirected}")
-        try:
-            return response.json()
-        except ValueError:
-            raise _Retryable(f"unparseable JSON ({len(response.content)} bytes)", bad_body=True) from None
+        return response
 
     def _wait_seconds(self, attempt: int, problem: _Retryable) -> float:
         if problem.retry_after is not None:
             return problem.retry_after
         return self.backoff_seconds * 2 ** (attempt - 1)
+
+
+def _content_problem(method: str, url: str, response: requests.Response, expected: str) -> str:
+    content_type = response.headers.get("Content-Type", "")
+    redirected = f", redirected to {response.url}" if response.history else ""
+    return f"{method} {url}: expected {expected} but got '{content_type or 'no Content-Type'}'{redirected}"
+
+
+def _parse_json(method: str, url: str, response: requests.Response) -> Any:
+    if "json" not in response.headers.get("Content-Type", "").lower():
+        raise InvalidResponseError(_content_problem(method, url, response, "JSON"))
+    try:
+        return response.json()
+    except ValueError:
+        raise _Retryable(f"unparseable JSON ({len(response.content)} bytes)", bad_body=True) from None
+
+
+def _parse_text(method: str, url: str, response: requests.Response) -> str:
+    # Servers label plain files differently (text/plain, application/octet-stream, ...);
+    # the one answer that is certainly wrong is an HTML page (an error or login page).
+    if "html" in response.headers.get("Content-Type", "").lower():
+        raise InvalidResponseError(_content_problem(method, url, response, "a text file"))
+    return response.text
 
 
 def _retry_after_seconds(response: requests.Response) -> float | None:
