@@ -89,6 +89,10 @@ class InvalidConfigTests(ConfigFileMixin, unittest.TestCase):
         self.assert_config_error(self.original.replace('"11249" = "11211"', '"11249" = "Brooklyn"'),
                                  "5-digit")
 
+    def test_county_table_must_cover_every_borough_once(self):
+        self.assert_config_error(self.original.replace('"36085" = "STATEN ISLAND"', '"36085" = "QUEENS"'),
+                                 "exactly one county")
+
     def test_quarantine_ratio_must_be_a_share(self):
         self.assert_config_error(self.original.replace("max_ratio = 0.01", "max_ratio = 5"), "max_ratio")
 

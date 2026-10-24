@@ -130,6 +130,21 @@ class HttpClientTests(unittest.TestCase):
         self.assertIn("missing_key.html", str(caught.exception))
         self.assertEqual(len(session.requests), 1)
 
+    # -------------------------------------------------------------- text files
+    def test_text_download_returns_the_body(self):
+        http, _, _ = client(FakeResponse(body="A|B\n1|2\n", content_type="text/plain"))
+        self.assertEqual(http.get_text(URL), "A|B\n1|2\n")
+
+    def test_text_download_refuses_an_html_page(self):
+        http, _, _ = client(FakeResponse(body="<html>error</html>", content_type="text/html"))
+        with self.assertRaises(InvalidResponseError):
+            http.get_text(URL)
+
+    def test_text_download_is_retried_like_any_request(self):
+        http, _, waits = client(FakeResponse(503), FakeResponse(body="x", content_type="text/plain"))
+        self.assertEqual(http.get_text(URL), "x")
+        self.assertEqual(waits, [2])
+
     # -------------------------------------------------------------- counting
     def test_stats_accumulate_across_calls(self):
         http, _, _ = client(FakeResponse(), FakeResponse(503), FakeResponse())
