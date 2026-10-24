@@ -1,9 +1,16 @@
-# Evidence from the exploration
+# کارخانهٔ دادهٔ ۳۱۱ نیویورک (مرحلهٔ ۱)
 
-Small result tables produced by the exploration scripts in `explore/` (2026-10-24) and kept
-here so the numbers quoted in `report.md` can be traced. They contain no raw records.
+از ریشهٔ پروژه، با Python 3.11 یا بالاتر:
 
-| File | Produced by | Content |
-|---|---|---|
-| `scope_candidates.csv` | `explore/02_compare_scopes.py`, `explore/03_measure_candidates.py` | candidate scopes, window 2024-01 to 2025-06; duration statistics from a 6,000-record sample per candidate |
-| `duplicate_definitions.csv` | `explore/06_duplicates.py` | four candidate duplicate definitions, measured on every HPD_top6 record of 2024-01 and 2024-07 (120,274 records) |
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # Mac/Linux: source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e .
+python -m unittest discover -s tests -t .       # همهٔ تست‌ها، بدون اینترنت
+data-factory run                                # کل کارخانه: fetch → validate → clean → enrich → publish
+```
+
+- فقط یک بخش: `data-factory run --stages validate,clean` — فقط دادهٔ جدید: `data-factory run --since-last-run` — بررسی تنظیمات: `data-factory check-config`
+- تنظیمات در `factory.toml`. خروجی‌ها و `run_manifest.json` در `data/curated/`. پاسخ اصلی: `solution.ipynb` (Restart & Run All). دلیل تصمیم‌ها: `report.md` و `docs/decisions.md`.
+- کد خروج: 0 موفق، 10 تنظیمات، 20/21 شبکه، 30–33 داده، 40 ورودی مرحلهٔ قبل موجود نیست، 1 خطای پیش‌بینی‌نشده.
