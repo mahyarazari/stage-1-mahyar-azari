@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
+from data_factory.cleaning import clean_dataset
 from data_factory.config import Config
 from data_factory.contract import SOURCE_COLUMNS
 from data_factory.http_client import HttpClient
@@ -69,10 +70,17 @@ def validate_stage(context: RunContext) -> None:
                       max_ratio=config.max_quarantine_ratio)
 
 
+def clean_stage(context: RunContext) -> None:
+    config = context.config
+    store = raw_store(config)
+    clean_dataset(config.paths.work / store.directory.name, config.as_of, config.clean)
+
+
 STAGE_NAMES = ("fetch", "validate", "clean", "enrich", "publish")
 STAGES: dict[str, Stage] = {name: _not_built_yet(name) for name in STAGE_NAMES}
 STAGES["fetch"] = fetch
 STAGES["validate"] = validate_stage
+STAGES["clean"] = clean_stage
 
 
 def run(context: RunContext, stage_names: list[str]) -> None:
