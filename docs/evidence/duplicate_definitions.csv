@@ -1,0 +1,5 @@
+definition,keys,groups,rows_in_groups,rows_marked_duplicate,pct_of_sample
+A,address + type + created second,10149,22835,12686,10.55
+B,address + type + descriptor + created second,5007,10549,5542,4.61
+C,building (bbl) + type + descriptor + created second,4998,10530,5532,4.60
+D,address + type + descriptor + same day,14190,38356,24166,20.09
