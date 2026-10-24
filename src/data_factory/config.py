@@ -65,6 +65,7 @@ class ZipConfig:
 class AggregateConfig:
     levels: tuple[str, ...]
     min_cases_per_cell: int
+    rate_per: int            # rates are complaints per this many residents
 
 
 @dataclass(frozen=True)
@@ -243,8 +244,10 @@ def _read_aggregate(data: dict[str, Any]) -> AggregateConfig:
     if unknown:
         raise ConfigError(f"[aggregate] unknown levels {unknown}; allowed: {list(AGGREGATE_LEVELS)}")
     min_cases = _get(section, "aggregate", "min_cases_per_cell", int)
+    rate_per = _get(section, "aggregate", "rate_per", int)
     return AggregateConfig(levels=levels,
-                           min_cases_per_cell=int(_positive(min_cases, "[aggregate] min_cases_per_cell")))
+                           min_cases_per_cell=int(_positive(min_cases, "[aggregate] min_cases_per_cell")),
+                           rate_per=int(_positive(rate_per, "[aggregate] rate_per")))
 
 
 # ---------------------------------------------------------------- entry point
