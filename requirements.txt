@@ -73,7 +73,8 @@ Pygments==2.21.0
 pyparsing==3.3.3
 python-dateutil==3.0.0
 python-json-logger==4.2.0
-pywinpty==3.1.0; sys_platform == "win32"PyYAML==6.0.3
+pywinpty==3.1.0; sys_platform == "win32"
+PyYAML==6.0.3
 pyzmq==27.2.0
 referencing==0.37.0
 requests==2.34.2
